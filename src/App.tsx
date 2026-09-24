@@ -46,6 +46,8 @@ export function App() {
   const [objective, setObjective] = useState<ResearchObjective>("opportunity");
   const [selectedMarketToken, setSelectedMarketToken] = useState<MarketPulseRow | null>(null);
   const [demoStep, setDemoStep] = useState(0);
+  const [demoActive, setDemoActive] = useState(false);
+  const [demoComplete, setDemoComplete] = useState(false);
   const roundRef = useRef<GameRound | null>(null);
   const demoPulse = useRef<NonNullable<GameRound["evidence"]["marketPulse"]> | null>(null);
 
@@ -80,7 +82,7 @@ export function App() {
   }, [round]);
 
   useEffect(() => {
-    if (!demoMode || !roundRef.current) return;
+    if (!demoMode || !demoActive || !roundRef.current) return;
     const pulse = roundRef.current.evidence.marketPulse;
     if (pulse && !demoPulse.current) demoPulse.current = pulse;
 
@@ -159,15 +161,22 @@ export function App() {
     };
 
     runStep(0);
+    setDemoStep(0);
     const timer = window.setInterval(() => {
       setDemoStep((current) => {
-        const next = (current + 1) % 12;
+        if (current >= 11) {
+          window.clearInterval(timer);
+          setDemoActive(false);
+          setDemoComplete(true);
+          return current;
+        }
+        const next = current + 1;
         runStep(next);
         return next;
       });
     }, 5200);
     return () => window.clearInterval(timer);
-  }, [demoMode, loading]);
+  }, [demoMode, demoActive, loading]);
 
   const selectedActor = useMemo(
     () => round?.actors.find((actor) => actor.id === selectedId) ?? null,
@@ -198,6 +207,12 @@ export function App() {
     document.querySelector(".suspectGrid")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function startGuidedDemo() {
+    if (demoComplete) return;
+    setDemoStep(0);
+    setDemoActive(true);
+  }
+
   if (loading) {
     return (
       <main className="app loading">
@@ -217,7 +232,14 @@ export function App() {
 
   return (
     <main className="app">
-      {demoMode ? <DemoGuide step={demoStep} /> : null}
+      {demoMode ? (
+        <DemoGuide
+          active={demoActive}
+          complete={demoComplete}
+          step={demoStep}
+          onStart={startGuidedDemo}
+        />
+      ) : null}
       <section className="hero">
         <div className="heroBackdrop" />
         <nav className="topbar" aria-label="Game status">
@@ -388,7 +410,17 @@ function WorkspaceNav() {
   return <div className="workspaceNav" aria-label="Workspace navigation">{items.map(([id, Icon, label]) => <button type="button" key={id} onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}><Icon size={15} />{label}</button>)}</div>;
 }
 
-function DemoGuide({ step }: { step: number }) {
+function DemoGuide({
+  active,
+  complete,
+  step,
+  onStart
+}: {
+  active: boolean;
+  complete: boolean;
+  step: number;
+  onStart: () => void;
+}) {
   const labels = [
     "Start at the live Nansen case",
     "Hover Market Pulse and choose the top gainer",
@@ -406,12 +438,19 @@ function DemoGuide({ step }: { step: number }) {
 
   return (
     <>
-      <div className={`demoCursor step${step}`} aria-hidden="true">
-        <span />
-      </div>
-      <div className="demoGuide" aria-live="polite">
-        <strong>Happy path demo</strong>
-        <span>{labels[step] ?? labels[0]}</span>
+      {active ? (
+        <div className={`demoCursor step${step}`} aria-hidden="true">
+          <span />
+        </div>
+      ) : null}
+      <div className={`demoGuide ${active ? "running" : ""}`} aria-live="polite">
+        <div>
+          <strong>Happy path demo</strong>
+          <span>{complete ? "Demo complete. The app is now fully interactive." : active ? labels[step] ?? labels[0] : "Click once to run the guided demo."}</span>
+        </div>
+        <button type="button" disabled={active || complete} onClick={onStart}>
+          {complete ? "Finished" : active ? "Playing" : "Play demo"}
+        </button>
       </div>
     </>
   );
