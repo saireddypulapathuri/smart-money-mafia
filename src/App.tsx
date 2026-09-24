@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
   Brain,
@@ -35,6 +35,7 @@ const personaIcons: Record<Persona, string> = {
 };
 
 export function App() {
+  const demoMode = useMemo(() => new URLSearchParams(window.location.search).get("demo") === "1", []);
   const [roundIndex, setRoundIndex] = useState(0);
   const [round, setRound] = useState<GameRound | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -44,6 +45,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [objective, setObjective] = useState<ResearchObjective>("opportunity");
   const [selectedMarketToken, setSelectedMarketToken] = useState<MarketPulseRow | null>(null);
+  const [demoStep, setDemoStep] = useState(0);
+  const roundRef = useRef<GameRound | null>(null);
+  const demoPulse = useRef<NonNullable<GameRound["evidence"]["marketPulse"]> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -67,6 +71,103 @@ export function App() {
       mounted = false;
     };
   }, [roundIndex]);
+
+  useEffect(() => {
+    roundRef.current = round;
+    if (round?.evidence.marketPulse && !demoPulse.current) {
+      demoPulse.current = round.evidence.marketPulse;
+    }
+  }, [round]);
+
+  useEffect(() => {
+    if (!demoMode || !roundRef.current) return;
+    const pulse = roundRef.current.evidence.marketPulse;
+    if (pulse && !demoPulse.current) demoPulse.current = pulse;
+
+    const playFromToken = (token: MarketPulseRow | undefined, reveal = false) => {
+      if (!token) return;
+      const nextRound = createScreenerRound(token);
+      const correct = nextRound.actors.find((actor) => actor.persona === nextRound.targetPersona) ?? nextRound.actors[0] ?? null;
+      setRound(nextRound);
+      setSelectedMarketToken(token);
+      setSelectedId(correct?.id ?? null);
+      setResult(reveal && correct ? { selectedActor: correct, isCorrect: true } : null);
+    };
+
+    const runStep = (step: number) => {
+      const savedPulse = demoPulse.current;
+      const gainer = savedPulse?.top_gainers_7d[0];
+      const loser = savedPulse?.top_losers_7d[0];
+      const volume = savedPulse?.top_volume[0];
+
+      if (step === 0) {
+        setSelectedMarketToken(null);
+        setResult(null);
+        document.querySelector(".hero")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (step === 1) {
+        setSelectedMarketToken(gainer ?? null);
+        document.getElementById("market-data")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (step === 2) {
+        playFromToken(gainer, false);
+        window.setTimeout(() => document.getElementById("investigation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+      if (step === 3) {
+        const activeRound = roundRef.current;
+        const correct = activeRound?.actors.find((actor) => actor.persona === activeRound.targetPersona) ?? activeRound?.actors[0] ?? null;
+        setSelectedId(correct?.id ?? null);
+        document.getElementById("agent-room")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (step === 4) {
+        const activeRound = roundRef.current;
+        const correct = activeRound?.actors.find((actor) => actor.persona === activeRound.targetPersona) ?? activeRound?.actors[0] ?? null;
+        if (correct) {
+          setSelectedId(correct.id);
+          setResult({ selectedActor: correct, isCorrect: true });
+        }
+      }
+      if (step === 5) {
+        setSelectedMarketToken(loser ?? null);
+        setResult(null);
+        document.getElementById("market-data")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (step === 6) {
+        playFromToken(loser, false);
+        window.setTimeout(() => document.getElementById("investigation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+      if (step === 7) {
+        playFromToken(loser, true);
+        window.setTimeout(() => document.getElementById("agent-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+      if (step === 8) {
+        setSelectedMarketToken(volume ?? null);
+        setResult(null);
+        document.getElementById("market-data")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (step === 9) {
+        playFromToken(volume, false);
+        window.setTimeout(() => document.querySelector(".suspectGrid")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+      if (step === 10) {
+        playFromToken(volume, true);
+        window.setTimeout(() => document.getElementById("agent-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+      if (step === 11) {
+        document.getElementById("settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+
+    runStep(0);
+    const timer = window.setInterval(() => {
+      setDemoStep((current) => {
+        const next = (current + 1) % 12;
+        runStep(next);
+        return next;
+      });
+    }, 5200);
+    return () => window.clearInterval(timer);
+  }, [demoMode, loading]);
 
   const selectedActor = useMemo(
     () => round?.actors.find((actor) => actor.id === selectedId) ?? null,
@@ -116,6 +217,7 @@ export function App() {
 
   return (
     <main className="app">
+      {demoMode ? <DemoGuide step={demoStep} /> : null}
       <section className="hero">
         <div className="heroBackdrop" />
         <nav className="topbar" aria-label="Game status">
@@ -284,6 +386,35 @@ function WorkspaceNav() {
     ["settings", Settings, "Data Vault"]
   ] as const;
   return <div className="workspaceNav" aria-label="Workspace navigation">{items.map(([id, Icon, label]) => <button type="button" key={id} onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}><Icon size={15} />{label}</button>)}</div>;
+}
+
+function DemoGuide({ step }: { step: number }) {
+  const labels = [
+    "Start at the live Nansen case",
+    "Hover Market Pulse and choose the top gainer",
+    "Open the gainer investigation",
+    "Inspect the agent council",
+    "Lock the correct deduction",
+    "Switch to the weekly loser",
+    "Open the risk-first case",
+    "Reveal the distribution signal",
+    "Select the top-volume token",
+    "Run a liquidity investigation",
+    "Close the third verdict",
+    "Show the evidence vault"
+  ];
+
+  return (
+    <>
+      <div className={`demoCursor step${step}`} aria-hidden="true">
+        <span />
+      </div>
+      <div className="demoGuide" aria-live="polite">
+        <strong>Happy path demo</strong>
+        <span>{labels[step] ?? labels[0]}</span>
+      </div>
+    </>
+  );
 }
 
 function DataRequiredState({ message }: { message: string }) {
