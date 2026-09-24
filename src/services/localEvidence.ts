@@ -29,8 +29,9 @@ type EvidencePack = {
 
 export async function loadLocalEvidenceRound(): Promise<GameRound | null> {
   try {
-    const response = await fetch("/nansen-workflow/latest.json", { cache: "no-store" });
-    const fallbackResponse = response.ok ? response : await fetch("/nansen-workflow/demo.json", { cache: "no-store" });
+    const evidenceBase = `${import.meta.env.BASE_URL}nansen-workflow/`;
+    const response = await fetch(`${evidenceBase}latest.json`, { cache: "no-store" });
+    const fallbackResponse = response.ok ? response : await fetch(`${evidenceBase}demo.json`, { cache: "no-store" });
     if (!fallbackResponse.ok) return null;
     const pack = (await fallbackResponse.json()) as EvidencePack;
     return createRoundFromEvidence(pack);
